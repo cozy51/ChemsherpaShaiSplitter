@@ -1,6 +1,8 @@
 export interface ShaiItem {
   id: string
   productNumber: string
+  /** XMLから取得した製品名。取得できなかった場合は未設定です。 */
+  productName?: string
   xmlFileName: string
   data: Uint8Array
 }

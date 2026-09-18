@@ -1,6 +1,7 @@
 import JSZip from 'jszip'
 import type { LoadedShai } from '../types'
 import { parseShaiXmlFileName } from './fileNameParser'
+import { parseXmlDetails } from './xmlParser'
 
 export async function readShaiFile(file: File): Promise<LoadedShai> {
   if (!file.name.toLowerCase().endsWith('.shai')) {
@@ -26,11 +27,13 @@ export async function readShaiFile(file: File): Promise<LoadedShai> {
       warnings.push(`「${entry.name}」は想定したファイル名形式ではないため除外しました。`)
       continue
     }
+    const data = await entry.async('uint8array')
     items.push({
       id: entry.name,
       productNumber: parsed.productNumber,
+      productName: parseXmlDetails(data, parsed.productNumber).productName,
       xmlFileName: entry.name,
-      data: await entry.async('uint8array'),
+      data,
     })
   }
 
