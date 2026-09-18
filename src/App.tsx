@@ -75,7 +75,7 @@ export default function App() {
     <header><div className="header-inner"><AppMark className="mark" /><div><h1>SHAlファイル分割</h1><p>品目ごとに安全・かんたん分割</p></div><span className="local-badge">● ブラウザ内で処理</span></div></header>
     <main>
       <section className="intro">
-        <div><span className="eyebrow">SHAl SPLITTER</span><h2>複数品目を、<br/><strong>1品目ずつのファイルへ。</strong></h2><p>ファイルを選ぶだけで、XMLを変更せずに品目ごとのSHAlを作成します。</p></div>
+        <div><span className="eyebrow">SHAl SPLITTER</span><h2>複数品目を、<br/><strong>1品目ずつのファイルへ。</strong></h2><p>ファイルを選ぶだけで、XMLを変更せずに品目ごとのSHAlを作成します。ファイル名は製品名で保存されます。</p></div>
         <ol><li><b>1</b> ファイルを選択</li><li><b>2</b> 品目を確認・選択</li><li><b>3</b> 分割してダウンロード</li></ol>
       </section>
 
@@ -108,8 +108,8 @@ export default function App() {
           <label><input type="checkbox" checked={allSelected} onChange={() => setAll(!allSelected)}/> 全選択</label>
           <button className="link" onClick={() => setAll(false)}>全解除</button><span>{selected.size} / {loaded.items.length} 件を選択中</span>
         </div>
-        <div className="table-wrap"><table><thead><tr><th>No.</th><th>選択</th><th>製品品番</th><th>XMLファイル名</th></tr></thead><tbody>
-          {loaded.items.map((item, index) => <tr key={item.id}><td>{index + 1}</td><td><input aria-label={`${item.productNumber}を選択`} type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)}/></td><td><b>{item.productNumber}</b></td><td className="filename">{item.xmlFileName}</td></tr>)}
+        <div className="table-wrap"><table><thead><tr><th>No.</th><th>選択</th><th>製品名</th><th>製品品番</th><th>XMLファイル名</th></tr></thead><tbody>
+          {loaded.items.map((item, index) => <tr key={item.id}><td>{index + 1}</td><td><input aria-label={`${item.productName ?? item.productNumber}を選択`} type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)}/></td><td><b>{item.productName ?? '—'}</b></td><td>{item.productNumber}</td><td className="filename">{item.xmlFileName}</td></tr>)}
         </tbody></table></div>
         <div className="action-row"><button className="primary large" onClick={() => void split()} disabled={!!busy || selected.size === 0}>選択した {selected.size} 品目を分割　→</button></div>
       </section>}
