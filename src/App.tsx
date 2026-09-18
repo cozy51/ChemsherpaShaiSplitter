@@ -79,6 +79,15 @@ export default function App() {
         <ol><li><b>1</b> ファイルを選択</li><li><b>2</b> 品目を確認・選択</li><li><b>3</b> 分割してダウンロード</li></ol>
       </section>
 
+      <section className="card about" aria-labelledby="about-shai">
+        <AppMark className="about-mark" />
+        <div>
+          <h3 id="about-shai">SHAIファイルとは？</h3>
+          <p>SHAIファイルは、chemSHERPA-AI（成形品）で使用する製品含有化学物質情報のデータファイルです。製品・部品の構成や材質、含有化学物質などの情報が保存されています。</p>
+          <p>このアプリでは、複数の品目を含むSHAIファイルを読み込み、品目ごとに分割して個別のSHAIファイルとして出力できます。</p>
+        </div>
+      </section>
+
       <section className="card upload-card">
         <div className={`drop-zone ${dragging ? 'dragging' : ''}`} onDragOver={(e) => { e.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
           <div className="upload-icon">⇧</div><h3>.shai ファイルをここにドロップ</h3><p>または</p>
