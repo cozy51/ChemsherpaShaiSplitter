@@ -11,6 +11,10 @@ npm run dev
 
 本番ビルドは `npm run build`、自動テストは `npm test` で実行できます。
 
+## アイコン
+
+`public/favicon.svg` が原本のアイコン（1枚のファイルが分割される様子を表したマーク）です。`favicon.ico` / `apple-touch-icon.png` / `icon-192.png` / `icon-512.png` はこのSVGから書き出しています。デザインを変更する場合はSVGを編集し、各PNGとICOを同じ絵柄で書き出し直してください。画面ヘッダーのマークは `src/AppMark.tsx` が同じ図形を描画しています。
+
 ## サンプルSHAlを使った確認手順
 
 1. 次のように複数のXMLを**直下**に格納したZIPを用意し、拡張子を `.shai` に変更します。

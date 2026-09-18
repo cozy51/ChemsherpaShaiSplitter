@@ -4,6 +4,7 @@ import type { LoadedShai, SplitFile } from './types'
 import { readShaiFile } from './services/shaiReader'
 import { createBundle, createSplitFiles } from './services/shaiWriter'
 import { downloadBlob } from './utils/download'
+import AppMark from './AppMark'
 
 type BusyState = 'reading' | 'splitting' | 'bundling' | null
 
@@ -71,7 +72,7 @@ export default function App() {
   const busyLabel = busy === 'reading' ? '読み込み中…' : busy === 'splitting' ? '分割処理中…' : 'まとめファイルを作成中…'
 
   return <>
-    <header><div className="header-inner"><div className="mark">S</div><div><h1>SHAlファイル分割</h1><p>品目ごとに安全・かんたん分割</p></div><span className="local-badge">● ブラウザ内で処理</span></div></header>
+    <header><div className="header-inner"><AppMark className="mark" /><div><h1>SHAlファイル分割</h1><p>品目ごとに安全・かんたん分割</p></div><span className="local-badge">● ブラウザ内で処理</span></div></header>
     <main>
       <section className="intro">
         <div><span className="eyebrow">SHAl SPLITTER</span><h2>複数品目を、<br/><strong>1品目ずつのファイルへ。</strong></h2><p>ファイルを選ぶだけで、XMLを変更せずに品目ごとのSHAlを作成します。</p></div>
