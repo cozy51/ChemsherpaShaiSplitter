@@ -97,10 +97,43 @@ function findNameNearProductNumber(doc: Document, productNumber: string): string
   return undefined
 }
 
+/** 属性の中から製品名にあたる値を取り出します。 */
+function pickNameAttribute(element: Element): string | undefined {
+  const attributes = Array.from(element.attributes).filter((attribute) => attribute.value.trim() !== '')
+  const normalized = (attribute: Attr) => (attribute.localName || attribute.name).replace(/[_\-.\s]/g, '').toLowerCase()
+  for (const tag of ['name', ...EXACT_NAME_TAGS]) {
+    const matched = attributes.find((attribute) => normalized(attribute) === tag)
+    if (matched) return matched.value.replace(/\s+/g, ' ').trim()
+  }
+  return undefined
+}
+
+/**
+ * chemSHERPA（IEC62474形式）では `<ProductID name="製品名" identifier="製品品番">` のように
+ * 属性で持つため、製品品番と同じ要素の属性から製品名を探します。
+ */
+function findNameInAttributes(doc: Document, productNumber?: string): string | undefined {
+  const elements = Array.from(doc.getElementsByTagName('*'))
+  if (productNumber) {
+    for (const element of elements) {
+      if (NAME_EXCLUDE.test(normalizeTagName(element))) continue
+      const hasProductNumber = Array.from(element.attributes).some((attribute) => attribute.value.trim() === productNumber)
+      if (!hasProductNumber) continue
+      const name = pickNameAttribute(element)
+      if (name && name !== productNumber) return name
+    }
+  }
+  const productId = elements.find((element) => normalizeTagName(element) === 'productid')
+  return productId ? pickNameAttribute(productId) : undefined
+}
+
 /** XMLの内容から製品名を取得します。取得できない場合は空のオブジェクトを返します。 */
 export function parseXmlDetails(data: Uint8Array, productNumber?: string): XmlDetails {
   const doc = parseDocument(data)
   if (!doc) return {}
+
+  const byAttribute = findNameInAttributes(doc, productNumber)
+  if (byAttribute) return { productName: byAttribute }
 
   const byProductNumber = productNumber ? findNameNearProductNumber(doc, productNumber) : undefined
   if (byProductNumber) return { productName: byProductNumber }

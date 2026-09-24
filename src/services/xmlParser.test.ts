@@ -46,4 +46,16 @@ describe('parseXmlDetails', () => {
   it('XMLとして壊れていても例外を投げない', () => {
     expect(parseXmlDetails(toData('<root><unclosed>'), '100-132-760')).toEqual({})
   })
+  it('chemSHERPA形式のProductID属性から製品名を取得する', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+      <Main xmlns="http://std.iec.ch/iec62474">
+        <BusinessInfo><Response><SupplyCompany name="YASKAWA Electric Corporation" nameLocal="株式会社　安川電機" /></Response></BusinessInfo>
+        <Product unitType="each">
+          <ProductID name="SGMPS-04ACA-SD11 MOTOR 17INC,24V,ROHS" identifier="100-056-024" version="Y001"><Mass mass="2400" unitOfMeasure="g" /></ProductID>
+          <Compliance><DsDsg name="Lead dinitrate" /></Compliance>
+        </Product>
+      </Main>`
+    expect(parseXmlDetails(toData(xml), '100-056-024')).toEqual({ productName: 'SGMPS-04ACA-SD11 MOTOR 17INC,24V,ROHS' })
+    expect(parseXmlDetails(toData(xml))).toEqual({ productName: 'SGMPS-04ACA-SD11 MOTOR 17INC,24V,ROHS' })
+  })
 })
