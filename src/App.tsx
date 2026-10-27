@@ -1,12 +1,25 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
-import type { LoadedShai, SplitFile } from './types'
+import type { LoadedShai, ShaiItem, SplitFile } from './types'
 import { readShaiFile } from './services/shaiReader'
 import { createBundle, createSplitFiles } from './services/shaiWriter'
+import { buildXmlView, inspectSplitFile } from './services/xmlViewer'
+import type { CheckResult, XmlView } from './services/xmlViewer'
 import { downloadBlob } from './utils/download'
 import AppMark from './AppMark'
+import XmlViewer from './XmlViewer'
 
 type BusyState = 'reading' | 'splitting' | 'bundling' | null
+
+interface ViewerState {
+  stage: '分割前' | '分割後'
+  item: ShaiItem
+  fileName: string
+  meta: string
+  view?: XmlView
+  checks?: CheckResult[]
+  loading?: boolean
+}
 
 export default function App() {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -17,6 +30,8 @@ export default function App() {
   const [complete, setComplete] = useState('')
   const [busy, setBusy] = useState<BusyState>(null)
   const [dragging, setDragging] = useState(false)
+  const [viewer, setViewer] = useState<ViewerState | null>(null)
+  const closeViewer = useCallback(() => setViewer(null), [])
 
   async function load(file?: File) {
     if (!file) return
@@ -68,6 +83,19 @@ export default function App() {
     finally { setBusy(null) }
   }
 
+  function viewBefore(item: ShaiItem) {
+    setViewer({ stage: '分割前', item, fileName: item.xmlFileName, meta: `読み込んだファイル: ${loaded?.sourceName ?? ''}`, view: buildXmlView(item.data) })
+  }
+
+  async function viewAfter(file: SplitFile) {
+    const item = loaded?.items.find((candidate) => candidate.id === file.id)
+    if (!item) return
+    const base = { stage: '分割後' as const, item, fileName: file.fileName, meta: `格納XML: ${item.xmlFileName}` }
+    setViewer({ ...base, loading: true })
+    const inspection = await inspectSplitFile(file.blob, item)
+    setViewer((current) => current?.item === item && current.stage === '分割後' ? { ...base, view: inspection.view, checks: inspection.checks } : current)
+  }
+
   const allSelected = !!loaded && selected.size === loaded.items.length
   const busyLabel = busy === 'reading' ? '読み込み中…' : busy === 'splitting' ? '分割処理中…' : 'まとめファイルを作成中…'
 
@@ -108,18 +136,19 @@ export default function App() {
           <label><input type="checkbox" checked={allSelected} onChange={() => setAll(!allSelected)}/> 全選択</label>
           <button className="link" onClick={() => setAll(false)}>全解除</button><span>{selected.size} / {loaded.items.length} 件を選択中</span>
         </div>
-        <div className="table-wrap"><table><thead><tr><th>No.</th><th>選択</th><th>製品名</th><th>製品品番</th><th>XMLファイル名</th></tr></thead><tbody>
-          {loaded.items.map((item, index) => <tr key={item.id}><td>{index + 1}</td><td><input aria-label={`${item.productName ?? item.productNumber}を選択`} type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)}/></td><td><b>{item.productName ?? '—'}</b></td><td>{item.productNumber}</td><td className="filename">{item.xmlFileName}</td></tr>)}
+        <div className="table-wrap"><table><thead><tr><th>No.</th><th>選択</th><th>製品名</th><th>製品品番</th><th>XMLファイル名</th><th>内容</th></tr></thead><tbody>
+          {loaded.items.map((item, index) => <tr key={item.id}><td>{index + 1}</td><td><input aria-label={`${item.productName ?? item.productNumber}を選択`} type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)}/></td><td><b>{item.productName ?? '—'}</b></td><td>{item.productNumber}</td><td className="filename">{item.xmlFileName}</td><td><button className="link" onClick={() => viewBefore(item)}>🔍 表示</button></td></tr>)}
         </tbody></table></div>
         <div className="action-row"><button className="primary large" onClick={() => void split()} disabled={!!busy || selected.size === 0}>選択した {selected.size} 品目を分割　→</button></div>
       </section>}
 
       {results.length > 0 && <section className="card downloads">
         <div className="section-head"><div><span className="step done">✓ COMPLETE</span><h2>分割結果</h2><p className="success">{complete}</p></div></div>
-        <div className="download-list">{results.map((file) => <div key={file.id}><span className="zip-icon">S</span><b>{file.fileName}</b><button className="secondary" onClick={() => downloadBlob(file.blob, file.fileName)}>⇩ ダウンロード</button></div>)}</div>
+        <div className="download-list">{results.map((file) => <div key={file.id}><span className="zip-icon">S</span><b>{file.fileName}</b><button className="secondary view-button" onClick={() => void viewAfter(file)}>🔍 内容を確認</button><button className="secondary" onClick={() => downloadBlob(file.blob, file.fileName)}>⇩ ダウンロード</button></div>)}</div>
         <div className="bundle"><div><b>すべてのファイルを一括保存</b><span>分割後のSHAlを1つのZIPにまとめます</span></div><button className="primary" onClick={() => void downloadAll()} disabled={!!busy}>⇩ すべてまとめてダウンロード</button></div>
       </section>}
     </main>
+    {viewer && <XmlViewer title={viewer.item.productName ?? viewer.item.productNumber} stage={viewer.stage} fileName={viewer.fileName} meta={viewer.meta} view={viewer.view} checks={viewer.checks} loading={viewer.loading} onClose={closeViewer} />}
     <footer>このツールは完全にクライアントサイドで動作します。ファイルがサーバーへ送信されることはありません。</footer>
   </>
 }
