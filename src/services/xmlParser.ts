@@ -44,7 +44,7 @@ function leafElementsOf(scope: Element | Document): Element[] {
 }
 
 /** XML宣言のencodingを尊重しつつ文字列へ変換します。 */
-function decodeXml(data: Uint8Array): string {
+export function decodeXml(data: Uint8Array): string {
   const head = new TextDecoder('utf-8').decode(data.slice(0, 200))
   const declared = /encoding=["']([\w-]+)["']/i.exec(head)?.[1]
   if (declared && !/^utf-?8$/i.test(declared)) {
@@ -57,7 +57,7 @@ function decodeXml(data: Uint8Array): string {
   return new TextDecoder('utf-8').decode(data)
 }
 
-function parseDocument(data: Uint8Array): Document | null {
+export function parseDocument(data: Uint8Array): Document | null {
   if (typeof DOMParser === 'undefined') return null
   // 文字列へ変換済みのためencoding指定は取り除いてから解析します。
   const xml = decodeXml(data).replace(/^(<\?xml[^>]*?)\s+encoding=["'][^"']*["']/i, '$1')
