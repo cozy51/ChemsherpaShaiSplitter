@@ -17,9 +17,18 @@ export async function readShaiFile(file: File): Promise<LoadedShai> {
 
   const warnings: string[] = []
   const items: LoadedShai['items'] = []
+  const entries: LoadedShai['entries'] = []
   const rootXmlFiles = Object.values(zip.files).filter(
     (entry) => !entry.dir && !entry.name.includes('/') && entry.name.toLowerCase().endsWith('.xml'),
   )
+
+  // 分割前の内容をそのまま確認できるよう、ZIP内のすべてのファイルを記録します。
+  for (const entry of Object.values(zip.files).filter((candidate) => !candidate.dir)) {
+    const isRootXml = rootXmlFiles.includes(entry)
+    const kind = !isRootXml ? 'other' : parseShaiXmlFileName(entry.name) ? 'item' : 'excluded'
+    const data = await entry.async('uint8array')
+    entries.push({ name: entry.name, size: data.length, date: entry.date, kind, data })
+  }
 
   for (const entry of rootXmlFiles) {
     const parsed = parseShaiXmlFileName(entry.name)
@@ -27,7 +36,7 @@ export async function readShaiFile(file: File): Promise<LoadedShai> {
       warnings.push(`「${entry.name}」は想定したファイル名形式ではないため除外しました。`)
       continue
     }
-    const data = await entry.async('uint8array')
+    const data = entries.find((candidate) => candidate.name === entry.name)!.data
     items.push({
       id: entry.name,
       productNumber: parsed.productNumber,
@@ -39,5 +48,5 @@ export async function readShaiFile(file: File): Promise<LoadedShai> {
 
   if (rootXmlFiles.length === 0) throw new Error('ZIP直下にXMLファイルが見つかりませんでした。')
   if (items.length === 0) throw new Error('処理可能なXMLファイルがありません。ファイル名形式を確認してください。')
-  return { sourceName: file.name, items, warnings }
+  return { sourceName: file.name, sourceSize: file.size, items, entries, warnings }
 }

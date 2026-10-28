@@ -3,22 +3,20 @@ import type { DragEvent } from 'react'
 import type { LoadedShai, ShaiItem, SplitFile } from './types'
 import { readShaiFile } from './services/shaiReader'
 import { createBundle, createSplitFiles } from './services/shaiWriter'
-import { buildXmlView, inspectSplitFile } from './services/xmlViewer'
+import { inspectSplitFile } from './services/xmlViewer'
 import type { CheckResult, XmlView } from './services/xmlViewer'
 import { downloadBlob } from './utils/download'
 import AppMark from './AppMark'
 import XmlViewer from './XmlViewer'
+import ShaiViewer from './ShaiViewer'
 
 type BusyState = 'reading' | 'splitting' | 'bundling' | null
 
 interface ViewerState {
-  stage: '分割前' | '分割後'
   item: ShaiItem
   fileName: string
   meta: string
   view?: XmlView
-  /** 分割後の表示で、切り替えて見比べるための分割前のXMLです。 */
-  beforeView?: XmlView
   checks?: CheckResult[]
   loading?: boolean
 }
@@ -33,11 +31,13 @@ export default function App() {
   const [busy, setBusy] = useState<BusyState>(null)
   const [dragging, setDragging] = useState(false)
   const [viewer, setViewer] = useState<ViewerState | null>(null)
+  const [sourceViewerOpen, setSourceViewerOpen] = useState(false)
   const closeViewer = useCallback(() => setViewer(null), [])
+  const closeSourceViewer = useCallback(() => setSourceViewerOpen(false), [])
 
   async function load(file?: File) {
     if (!file) return
-    setError(''); setComplete(''); setResults([]); setBusy('reading')
+    setError(''); setComplete(''); setResults([]); setSourceViewerOpen(false); setBusy('reading')
     try {
       const next = await readShaiFile(file)
       setLoaded(next)
@@ -85,17 +85,13 @@ export default function App() {
     finally { setBusy(null) }
   }
 
-  function viewBefore(item: ShaiItem) {
-    setViewer({ stage: '分割前', item, fileName: item.xmlFileName, meta: `読み込んだファイル: ${loaded?.sourceName ?? ''}`, view: buildXmlView(item.data) })
-  }
-
   async function viewAfter(file: SplitFile) {
     const item = loaded?.items.find((candidate) => candidate.id === file.id)
     if (!item) return
-    const base = { stage: '分割後' as const, item, fileName: file.fileName, meta: `格納XML: ${item.xmlFileName}` }
+    const base = { item, fileName: file.fileName, meta: `格納XML: ${item.xmlFileName}` }
     setViewer({ ...base, loading: true })
     const inspection = await inspectSplitFile(file.blob, item)
-    setViewer((current) => current?.item === item && current.stage === '分割後' ? { ...base, view: inspection.view, beforeView: buildXmlView(item.data), checks: inspection.checks } : current)
+    setViewer((current) => current?.item === item ? { ...base, view: inspection.view, checks: inspection.checks } : current)
   }
 
   const allSelected = !!loaded && selected.size === loaded.items.length
@@ -132,14 +128,14 @@ export default function App() {
 
       {loaded && <section className="card result-card">
         <div className="section-head"><div><span className="step">STEP 2</span><h2>読み込み結果</h2></div><button className="secondary" onClick={() => { if (inputRef.current) inputRef.current.value = ''; inputRef.current?.click() }} disabled={!!busy}>↻ ファイルを選び直す</button></div>
-        <div className="file-summary"><div className="file-symbol">XML</div><div><span>読み込んだファイル</span><b>{loaded.sourceName}</b></div><strong>{loaded.items.length}<small> 品目</small></strong></div>
+        <div className="file-summary"><div className="file-symbol">XML</div><div><span>読み込んだファイル</span><b>{loaded.sourceName}</b></div><strong>{loaded.items.length}<small> 品目</small></strong><button className="secondary small" onClick={() => setSourceViewerOpen(true)}>🔍 中身を見る</button></div>
         {loaded.warnings.map((warning) => <div className="notice warning" key={warning}>⚠ <span>{warning}</span></div>)}
         <div className="selection-bar">
           <label><input type="checkbox" checked={allSelected} onChange={() => setAll(!allSelected)}/> 全選択</label>
           <button className="link" onClick={() => setAll(false)}>全解除</button><span>{selected.size} / {loaded.items.length} 件を選択中</span>
         </div>
-        <div className="table-wrap"><table><thead><tr><th>No.</th><th>選択</th><th>製品名</th><th>製品品番</th><th>内容</th><th>XMLファイル名</th></tr></thead><tbody>
-          {loaded.items.map((item, index) => <tr key={item.id}><td>{index + 1}</td><td><input aria-label={`${item.productName ?? item.productNumber}を選択`} type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)}/></td><td><b>{item.productName ?? '—'}</b></td><td>{item.productNumber}</td><td><button className="secondary small" onClick={() => viewBefore(item)}>🔍 XMLを表示</button></td><td className="filename">{item.xmlFileName}</td></tr>)}
+        <div className="table-wrap"><table><thead><tr><th>No.</th><th>選択</th><th>製品名</th><th>製品品番</th><th>XMLファイル名</th></tr></thead><tbody>
+          {loaded.items.map((item, index) => <tr key={item.id}><td>{index + 1}</td><td><input aria-label={`${item.productName ?? item.productNumber}を選択`} type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)}/></td><td><b>{item.productName ?? '—'}</b></td><td>{item.productNumber}</td><td className="filename">{item.xmlFileName}</td></tr>)}
         </tbody></table></div>
         <div className="action-row"><button className="primary large" onClick={() => void split()} disabled={!!busy || selected.size === 0}>選択した {selected.size} 品目を分割　→</button></div>
       </section>}
@@ -150,7 +146,8 @@ export default function App() {
         <div className="bundle"><div><b>すべてのファイルを一括保存</b><span>分割後のSHAlを1つのZIPにまとめます</span></div><button className="primary" onClick={() => void downloadAll()} disabled={!!busy}>⇩ すべてまとめてダウンロード</button></div>
       </section>}
     </main>
-    {viewer && <XmlViewer title={viewer.item.productName ?? viewer.item.productNumber} stage={viewer.stage} fileName={viewer.fileName} meta={viewer.meta} view={viewer.view} beforeView={viewer.beforeView} beforeFileName={viewer.item.xmlFileName} checks={viewer.checks} loading={viewer.loading} onClose={closeViewer} />}
+    {viewer && <XmlViewer title={viewer.item.productName ?? viewer.item.productNumber} fileName={viewer.fileName} meta={viewer.meta} view={viewer.view} checks={viewer.checks} loading={viewer.loading} onClose={closeViewer} />}
+    {sourceViewerOpen && loaded && <ShaiViewer loaded={loaded} onClose={closeSourceViewer} />}
     <footer>このツールは完全にクライアントサイドで動作します。ファイルがサーバーへ送信されることはありません。</footer>
   </>
 }
