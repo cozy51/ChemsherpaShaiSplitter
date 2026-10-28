@@ -36,3 +36,21 @@ describe('readShaiFile', () => {
     expect(loaded.items[0].productName).toBeUndefined()
   })
 })
+
+describe('readShaiFile の entries', () => {
+  it('ZIP内のすべてのファイルを種類つきで記録する', async () => {
+    const file = await buildShai({
+      'SHAI_20260724084312_100-132-760_001.xml': xmlFor('100-132-760', 'SGM7J-04AFA6E'),
+      'unexpected.xml': '<a/>',
+      'sub/readme.txt': 'メモ',
+    })
+    const loaded = await readShaiFile(file)
+    expect(loaded.entries.map((entry) => [entry.name, entry.kind])).toEqual([
+      ['SHAI_20260724084312_100-132-760_001.xml', 'item'],
+      ['unexpected.xml', 'excluded'],
+      ['sub/readme.txt', 'other'],
+    ])
+    expect(loaded.entries[2].size).toBe(new TextEncoder().encode('メモ').length)
+    expect(loaded.sourceSize).toBe(file.size)
+  })
+})
