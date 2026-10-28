@@ -57,6 +57,34 @@ export async function mergeShaiItems(items: ShaiItem[]): Promise<MergeResult> {
   return { blob, xmlFileNames, warnings }
 }
 
+export interface SkippedItem {
+  item: ShaiItem
+  /** 同じ製品品番ですでに一覧にある品目です。 */
+  existing: ShaiItem
+  /** XMLの中身まで同じかどうかです。 */
+  identical: boolean
+}
+
+/**
+ * 結合の一覧へ追加する品目から、すでにある品目と製品品番が同じものを除きます。
+ * 同じファイルの中で製品品番が重なる場合も、先に出てきた品目だけを残します。
+ */
+export function excludeDuplicates(existing: ShaiItem[], incoming: ShaiItem[]): { accepted: ShaiItem[], skipped: SkippedItem[] } {
+  const known = new Map(existing.map((item) => [item.productNumber, item]))
+  const accepted: ShaiItem[] = []
+  const skipped: SkippedItem[] = []
+  for (const item of incoming) {
+    const found = known.get(item.productNumber)
+    if (found) {
+      skipped.push({ item, existing: found, identical: sameBytes(found.data, item.data) })
+      continue
+    }
+    known.set(item.productNumber, item)
+    accepted.push(item)
+  }
+  return { accepted, skipped }
+}
+
 /** 入力されたファイル名を、拡張子 .shai 付きの安全な名前に整えます。 */
 export function mergedFileNameOf(input: string): string {
   const base = sanitizeFileBaseName(input.replace(/\.shai$/i, '')) ?? 'SHAI_merged'
