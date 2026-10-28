@@ -72,7 +72,6 @@ export const REGULATIONS: [code: string, name: string, description: string, revi
   ['IC02', 'IEC62474', 'IEC 62474 DB Declarable substance groups and declarable substances', 'IEC62474 D32.00'],
   ['CD01', 'CDS', '管理対象候補物質', '-'],
 ]
-const REGULATION_NAMES = new Map(REGULATIONS.map(([code, name, description]) => [code, `${code} ${name} ${description}`]))
 
 /** 全項目シートで属性名に添える日本語の説明です。 */
 const ATTRIBUTE_LABELS: Record<string, string> = {
@@ -94,15 +93,31 @@ export interface PartyRow {
   required: boolean
 }
 
-/** 遵法判断情報シートの1行分（Compliance配下の要素1つ）です。 */
+/** 遵法判断情報シートの1行分（Compliance配下の DsDsg 1つ）です。chemSHERPA-AIの「遵法判断情報画面」の列に合わせています。 */
 export interface ComplianceRow {
-  depth: number
-  element: string
-  /** 属性や値に管理対象基準のコード（LR01など）があれば、その名称です。 */
-  regulation: string
-  attributes: string
-  text: string
+  /** DsDsgID の entryIdentity（例: 00021）です。 */
+  id: string
+  name: string
+  /** 報告用途（reportableApplication）です。 */
+  application: string
+  /** 報告閾値（reportingThreshold）です。 */
+  threshold: string
+  /** 含有判定です。aboveComplianceThreshold が true なら Y、false なら N です。 */
+  judgement: 'Y' | 'N' | ''
+  /** 含有率(ppm)です。MassPercent（質量%）を ppm に換算します。 */
+  ppm: string
+  mass: string
+  unit: string
+  /** 用途コード（例: EU-RoHS-6(c)）です。 */
+  exemptionCode: string
+  exemptionDescription: string
+  /** 使用用途・使用部位は comment を「@」で区切った4・5番目に入っています。 */
+  usage: string
+  location: string
 }
+
+/** 含有判定がYの物質で、ツール画面で * の付く項目です。 */
+const COMPLIANCE_REQUIRED: [keyof ComplianceRow, string][] = [['ppm', '含有率(ppm)'], ['mass', '含有量'], ['unit', '単位']]
 
 export interface ProductSummary {
   item: ShaiItem
@@ -117,14 +132,21 @@ export interface ProductSummary {
   /** 未入力の必須項目（例: 「発行者 部署名」）です。 */
   missing: string[]
   compliance: ComplianceRow[]
+  /** 確定日時です。Product の comment を「@」で区切った2番目に入っています。 */
+  confirmedAt: string
+  /** 対象エリア（DeclarableSubstanceList の authority と version）です。 */
+  area: string
+  /** 含有総合判定です。含有判定がYの物質が1つでもあれば Y です。 */
+  overall: 'Y' | 'N' | ''
 }
 
 function localNameOf(element: Element): string {
   return element.localName || element.nodeName.replace(/^.*:/, '')
 }
 
-function ownText(element: Element): string {
-  return Array.from(element.childNodes).filter((node) => node.nodeType === 3 || node.nodeType === 4).map((node) => node.nodeValue ?? '').join('').trim()
+/** 数値として読める値は、Excelで計算や並べ替えができるよう数値にします。 */
+function toNumber(value: string): string | number {
+  return value !== '' && !Number.isNaN(Number(value)) ? Number(value) : value
 }
 
 /** 1品目のXMLから、製品情報・発行者・承認者と必須項目の未入力を取り出します。 */
@@ -163,24 +185,48 @@ export function summarizeItem(item: ShaiItem): ProductSummary {
     .filter((value) => value !== '')
     .map((value) => SECTIONALS[value] ?? value)
 
-  const compliance: ComplianceRow[] = []
-  const walk = (element: Element, depth: number) => {
-    Array.from(element.children).forEach((child) => {
-      const values = [...Array.from(child.attributes).map((attribute) => attribute.value.trim()), ownText(child)]
-      compliance.push({
-        depth,
-        element: localNameOf(child),
-        regulation: values.map((value) => REGULATION_NAMES.get(value)).filter(Boolean).join('、'),
-        attributes: Array.from(child.attributes).map((attribute) => `${attribute.name}=${attribute.value}`).join(' / '),
-        text: ownText(child),
+  const childrenOf = (element: Element, name: string) => Array.from(element.children).filter((child) => localNameOf(child) === name)
+  const compliance: ComplianceRow[] = elements.filter((element) => localNameOf(element) === 'DsDsg').map((dsdsg) => {
+    const threshold = childrenOf(dsdsg, 'ComplianceThreshold')[0]
+    const above = attr(threshold, 'aboveComplianceThreshold')
+    const massPercent = attr(childrenOf(dsdsg, 'MassPercent')[0], 'massPercent')
+    const mass = childrenOf(dsdsg, 'Mass')[0]
+    const exemptions = childrenOf(dsdsg, 'Exemptions').flatMap((group) => {
+      // UniqueID が後に続く Exemption の基準（例: EU-RoHS-AnnexIII）を表します。
+      let base = ''
+      return Array.from(group.children).flatMap((child) => {
+        if (localNameOf(child) === 'UniqueID') { base = attr(child, 'identity').replace(/-Annex[^-]*$/i, ''); return [] }
+        if (localNameOf(child) !== 'Exemption') return []
+        const index = attr(child, 'regIndex') || attr(child, 'identity')
+        return [{ code: base ? `${base}-${index}` : index, description: attr(child, 'description') }]
       })
-      walk(child, depth + 1)
     })
-  }
-  elements.filter((element) => localNameOf(element) === 'Compliance').forEach((element) => walk(element, 0))
+    const comment = attr(dsdsg, 'comment').split('@')
+    return {
+      id: attr(childrenOf(dsdsg, 'DsDsgID')[0], 'entryIdentity'),
+      name: attr(dsdsg, 'name'),
+      application: attr(threshold, 'reportableApplication'),
+      threshold: attr(threshold, 'reportingThreshold'),
+      judgement: above === 'true' ? 'Y' : above === 'false' ? 'N' : '',
+      ppm: massPercent && !Number.isNaN(Number(massPercent)) ? String(Math.round(Number(massPercent) * 10000 * 1e6) / 1e6) : massPercent,
+      mass: attr(mass, 'mass'),
+      unit: attr(mass, 'unitOfMeasure'),
+      exemptionCode: exemptions.map((exemption) => exemption.code).join('、'),
+      exemptionDescription: exemptions.map((exemption) => exemption.description).filter(Boolean).join('、'),
+      usage: comment[3] ?? '',
+      location: comment[4] ?? '',
+    }
+  })
+  compliance.filter((row) => row.judgement === 'Y').forEach((row) => {
+    COMPLIANCE_REQUIRED.forEach(([key, label]) => { if (row[key] === '') missing.push(`遵法 ID${row.id} ${label}`) })
+  })
+  const list = first('DeclarableSubstanceList')
+  const overall = compliance.length === 0 ? '' : compliance.some((row) => row.judgement === 'Y') ? 'Y' : 'N'
 
   return {
-    item, product, issuer, approver, sectionals, missing, compliance,
+    item, product, issuer, approver, sectionals, missing, compliance, overall,
+    confirmedAt: attr(first('Product'), 'comment').split('@')[1] ?? '',
+    area: [attr(list, 'authority'), attr(list, 'version')].filter(Boolean).join(' '),
     response: { date: attr(response, 'date'), docID: attr(response, 'docID'), comment: attr(response, 'comment') },
   }
 }
@@ -190,6 +236,7 @@ const HEADER_FILL = fill('FFCDE6F7')
 const LABEL_FILL = fill('FFE3F0FA')
 const MISSING_FILL = fill('FFFFE1E1')
 const OK_FILL = fill('FFE6F6EC')
+const CONTAINED_FILL = fill('FFFFF2CC')
 const BORDER = { style: 'thin', color: { argb: 'FF9FB4CC' } } as const
 const BORDERS = { top: BORDER, left: BORDER, bottom: BORDER, right: BORDER }
 const MISSING_FONT = { color: { argb: 'FFB42318' }, bold: true }
@@ -224,13 +271,15 @@ function addProductSheet(sheet: Worksheet, summaries: ProductSummary[], sourceNa
   sheet.addRow([`製品・部品情報（元ファイル: ${sourceName}）`]).font = { bold: true, size: 12 }
   sheet.addRow(['見出しの * は必須項目です。赤色のセルは未入力の必須項目を示します。']).font = { color: { argb: 'FF8A5B00' }, size: 10 }
   sheet.addRow([])
-  const headers = ['No.', ...PRODUCT_SPECS.map((spec) => spec.required ? `${spec.label} *` : spec.label), '伝達事項', '必須項目の確認', 'XMLファイル名']
+  const headers = ['No.', ...PRODUCT_SPECS.map((spec) => spec.required ? `${spec.label} *` : spec.label), '伝達事項', '確定日時', '対象エリア', '含有総合判定', '含有物質(Y)', '必須項目の確認', 'XMLファイル名']
   const header = sheet.addRow(headers)
-  sheet.columns = [{ width: 6 }, ...PRODUCT_SPECS.map((spec) => ({ width: spec.width })), { width: 16 }, { width: 30 }, { width: 46 }]
+  sheet.columns = [{ width: 6 }, ...PRODUCT_SPECS.map((spec) => ({ width: spec.width })), { width: 16 }, { width: 17 }, { width: 16 }, { width: 8 }, { width: 30 }, { width: 30 }, { width: 46 }]
   summaries.forEach((summary, index) => {
-    const row = sheet.addRow([index + 1, ...summary.product, summary.sectionals.join('、'), summary.missing.length === 0 ? '○ すべて入力済み' : `× 未入力 ${summary.missing.length}件: ${summary.missing.join('、')}`, summary.item.xmlFileName])
+    const contained = summary.compliance.filter((row) => row.judgement === 'Y').map((row) => `${row.id} ${row.name}`).join('\n')
+    const row = sheet.addRow([index + 1, ...summary.product, summary.sectionals.join('、'), summary.confirmedAt, summary.area, summary.overall, contained, summary.missing.length === 0 ? '○ すべて入力済み' : `× 未入力 ${summary.missing.length}件: ${summary.missing.join('、')}`, summary.item.xmlFileName])
     PRODUCT_SPECS.forEach((spec, specIndex) => { if (spec.required && summary.product[specIndex] === '') markMissing(sheet, row.number, specIndex + 2) })
-    const check = row.getCell(PRODUCT_SPECS.length + 3)
+    if (summary.overall === 'Y') row.getCell(PRODUCT_SPECS.length + 5).fill = CONTAINED_FILL
+    const check = row.getCell(PRODUCT_SPECS.length + 7)
     check.fill = summary.missing.length === 0 ? OK_FILL : MISSING_FILL
     if (summary.missing.length > 0) check.font = MISSING_FONT
   })
@@ -279,19 +328,43 @@ function addPartySheet(sheet: Worksheet, summaries: ProductSummary[]) {
   })
 }
 
-function addComplianceSheet(sheet: Worksheet, summaries: ProductSummary[]) {
-  sheet.columns = [
-    { header: '製品品番', width: 14 }, { header: '製品名', width: 30 }, { header: '要素', width: 28 },
-    { header: '管理対象基準', width: 40 }, { header: '属性と値', width: 70 }, { header: '値', width: 30 },
-  ]
+const COMPLIANCE_HEADERS: [string, number][] = [
+  ['製品品番', 14], ['製品名', 26], ['ID', 8], ['物質/物質群', 34], ['報告用途', 30], ['報告閾値', 34], ['含有判定 *', 9],
+  ['含有率(ppm) *', 12], ['含有量 *', 10], ['単位 *', 7], ['用途コード', 16], ['適用除外の内容', 30], ['使用用途', 22], ['使用部位', 22],
+]
+
+/** chemSHERPA-AIの「遵法判断情報画面」に近い表です。onlyContained のときは含有判定がYの物質だけを出します。 */
+function addComplianceSheet(sheet: Worksheet, summaries: ProductSummary[], onlyContained: boolean) {
+  sheet.addRow([onlyContained ? '含有物質（含有判定が Y の物質）' : '遵法判断情報']).font = { bold: true, size: 12 }
+  sheet.addRow([onlyContained
+    ? '見出しの * は含有判定が Y のときの必須項目です。赤色のセルは未入力を示します。'
+    : '含有判定が Y の行は黄色で表示します。見出しの * は Y のときの必須項目で、赤色のセルは未入力を示します。']).font = { color: { argb: 'FF8A5B00' }, size: 10 }
+  sheet.addRow([])
+  sheet.columns = COMPLIANCE_HEADERS.map(([, width]) => ({ width }))
+  const header = sheet.addRow(COMPLIANCE_HEADERS.map(([label]) => label))
   summaries.forEach(({ item, compliance }) => {
-    if (compliance.length === 0) sheet.addRow([item.productNumber, item.productName ?? '', '（遵法判断情報なし）'])
-    compliance.forEach((row) => sheet.addRow([item.productNumber, item.productName ?? '', `${'　'.repeat(row.depth)}${row.element}`, row.regulation, row.attributes, row.text]))
+    const rows = onlyContained ? compliance.filter((row) => row.judgement === 'Y') : compliance
+    if (rows.length === 0) {
+      sheet.addRow([item.productNumber, item.productName ?? '', '', onlyContained ? '（含有判定が Y の物質はありません）' : '（遵法判断情報なし）'])
+      return
+    }
+    rows.forEach((compliance) => {
+      const values = [compliance.ppm, compliance.mass, compliance.unit]
+      const row = sheet.addRow([
+        item.productNumber, item.productName ?? '', compliance.id, compliance.name, compliance.application, compliance.threshold, compliance.judgement,
+        toNumber(compliance.ppm), toNumber(compliance.mass), compliance.unit,
+        compliance.exemptionCode, compliance.exemptionDescription, compliance.usage, compliance.location,
+      ])
+      if (compliance.judgement !== 'Y') return
+      for (let column = 1; column <= COMPLIANCE_HEADERS.length; column += 1) row.getCell(column).fill = CONTAINED_FILL
+      row.getCell(7).font = { bold: true, color: { argb: 'FFB42318' } }
+      values.forEach((value, index) => { if (value === '') markMissing(sheet, row.number, 8 + index) })
+    })
   })
-  boxRange(sheet, 1, sheet.rowCount, 6)
-  styleHeader(sheet, 1, 6)
-  sheet.views = [{ state: 'frozen', ySplit: 1 }]
-  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 6 } }
+  boxRange(sheet, header.number, sheet.rowCount, COMPLIANCE_HEADERS.length)
+  styleHeader(sheet, header.number, COMPLIANCE_HEADERS.length)
+  sheet.views = [{ state: 'frozen', xSplit: 4, ySplit: header.number }]
+  sheet.autoFilter = { from: { row: header.number, column: 1 }, to: { row: header.number, column: COMPLIANCE_HEADERS.length } }
 }
 
 function addRegulationSheet(sheet: Worksheet) {
@@ -335,7 +408,8 @@ export async function createExcel(items: ShaiItem[], sourceName: string): Promis
   const addSheet = (name: string) => workbook.addWorksheet(name, { pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } })
   addProductSheet(addSheet('製品情報'), summaries, sourceName)
   addPartySheet(addSheet('発行者・承認者'), summaries)
-  addComplianceSheet(addSheet('遵法判断情報'), summaries)
+  addComplianceSheet(addSheet('含有物質(Y)'), summaries, true)
+  addComplianceSheet(addSheet('遵法判断情報'), summaries, false)
   addAllFieldsSheet(addSheet('全項目'), summaries)
   addRegulationSheet(addSheet('管理対象基準'))
   const buffer = await workbook.xlsx.writeBuffer()
