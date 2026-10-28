@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import type { LoadedShai, ShaiItem } from './types'
 import { readShaiFile } from './services/shaiReader'
-import { defaultMergedName, mergeShaiItems, mergedFileNameOf } from './services/shaiMerger'
+import { defaultMergedName, excludeDuplicates, mergeShaiItems, mergedFileNameOf } from './services/shaiMerger'
 import { createExcel, excelFileNameOf } from './services/excelExport'
 import { downloadBlob } from './utils/download'
 import ShaiViewer from './ShaiViewer'
@@ -13,6 +13,8 @@ type BusyState = 'reading' | 'merging' | 'excel' | null
 interface Source {
   key: string
   loaded: LoadedShai
+  /** 製品品番がすでに一覧にあったため追加しなかった品目の数です。 */
+  skipped: number
 }
 
 interface Merged {
@@ -32,6 +34,7 @@ export default function MergeMode() {
   const [name, setName] = useState(defaultMergedName)
   const [merged, setMerged] = useState<Merged | null>(null)
   const [errors, setErrors] = useState<string[]>([])
+  const [notices, setNotices] = useState<string[]>([])
   const [busy, setBusy] = useState<BusyState>(null)
   const [dragging, setDragging] = useState(false)
   const [viewing, setViewing] = useState<LoadedShai | null>(null)
@@ -41,15 +44,28 @@ export default function MergeMode() {
 
   async function add(files: File[]) {
     if (files.length === 0) return
-    setBusy('reading'); setErrors([]); setMerged(null)
+    setBusy('reading'); setErrors([]); setNotices([]); setMerged(null)
     const added: Source[] = []
     const failed: string[] = []
+    const skippedMessages: string[] = []
+    const sourceNameOf = (id: string) => [...sources, ...added].find((source) => id.startsWith(`${source.key}/`))?.loaded.sourceName ?? ''
     for (const file of files) {
       try {
         const loaded = await readShaiFile(file)
         counter.current += 1
         const key = `source-${counter.current}`
-        added.push({ key, loaded: { ...loaded, items: loaded.items.map((item) => ({ ...item, id: `${key}/${item.id}` })) } })
+        const incoming = loaded.items.map((item) => ({ ...item, id: `${key}/${item.id}` }))
+        // 同じ製品品番の品目が二重に入らないよう、すでに一覧にある品目は追加しません。
+        const { accepted, skipped } = excludeDuplicates([...sources, ...added].flatMap((source) => source.loaded.items), incoming)
+        if (accepted.length === 0) {
+          skippedMessages.push(`${file.name} の品目はすべて追加済みのため、このファイルは追加しませんでした。`)
+          continue
+        }
+        skipped.forEach(({ item, existing, identical }) => {
+          const where = existing.id.startsWith(`${key}/`) ? '同じファイル内' : `「${sourceNameOf(existing.id)}」`
+          skippedMessages.push(`${file.name}: ${item.productName ?? item.productNumber}（${item.productNumber}）は${where}ですでに追加済みのため、追加しませんでした。${identical ? '' : 'XMLの内容は異なります。'}`)
+        })
+        added.push({ key, loaded: { ...loaded, items: accepted }, skipped: skipped.length })
       } catch (reason) {
         failed.push(`${file.name}: ${reason instanceof Error ? reason.message : '読み込みに失敗しました。'}`)
       }
@@ -57,13 +73,14 @@ export default function MergeMode() {
     setSources((current) => [...current, ...added])
     setSelected((current) => new Set([...current, ...added.flatMap((source) => source.loaded.items.map((item) => item.id))]))
     setErrors(failed)
+    setNotices(skippedMessages)
     setBusy(null)
   }
 
   function remove(key: string) {
     setSources((current) => current.filter((source) => source.key !== key))
     setSelected((current) => new Set([...current].filter((id) => !id.startsWith(`${key}/`))))
-    setMerged(null)
+    setMerged(null); setNotices([])
   }
 
   function toggle(id: string) {
@@ -121,12 +138,13 @@ export default function MergeMode() {
 
     {busy && <div className="notice processing" role="status"><span className="spinner"/>{busyLabel}</div>}
     {errors.map((error) => <div className="notice error" role="alert" key={error}>⚠ <span>{error}</span></div>)}
+    {notices.length > 0 && <div className="notice warning" role="status">⚠ <div><b>重複している品目は追加しませんでした</b><ul className="notice-list">{notices.map((notice) => <li key={notice}>{notice}</li>)}</ul></div></div>}
 
     {sources.length > 0 && <section className="card result-card">
       <div className="section-head"><div><span className="step">STEP 2</span><h2>結合する品目</h2></div><button className="secondary" onClick={() => inputRef.current?.click()} disabled={!!busy}>＋ ファイルを追加</button></div>
       <ul className="source-list">
         {sources.map((source) => <li key={source.key}>
-          <span className="file-symbol">S</span><div><b>{source.loaded.sourceName}</b><span>{source.loaded.items.length} 品目</span></div>
+          <span className="file-symbol">S</span><div><b>{source.loaded.sourceName}</b><span>{source.loaded.items.length} 品目{source.skipped > 0 && `（重複していた ${source.skipped} 品目は追加していません）`}</span></div>
           <button className="secondary small" onClick={() => setViewing(source.loaded)}>🔍 中身を見る</button>
           <button className="link remove" onClick={() => remove(source.key)} disabled={!!busy} aria-label={`${source.loaded.sourceName}を外す`}>✕ 外す</button>
         </li>)}

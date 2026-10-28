@@ -1,6 +1,6 @@
 import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
-import { defaultMergedName, mergeShaiItems, mergedFileNameOf } from './shaiMerger'
+import { defaultMergedName, excludeDuplicates, mergeShaiItems, mergedFileNameOf } from './shaiMerger'
 
 const encoder = new TextEncoder()
 const itemOf = (xmlFileName: string, content: string) => ({ id: xmlFileName + content, productNumber: 'x', xmlFileName, data: encoder.encode(content) })
@@ -52,5 +52,22 @@ describe('結合ファイル名', () => {
 
   it('初期値は日時入りの名前にする', () => {
     expect(defaultMergedName(new Date(2026, 9, 28, 9, 5, 7))).toBe('SHAI_merged_20261028090507')
+  })
+})
+
+describe('excludeDuplicates', () => {
+  const withNumber = (productNumber: string, content: string) => ({ ...itemOf(`SHAI_20260724084312_${productNumber}_001.xml`, content), productNumber })
+
+  it('すでにある製品品番の品目は追加しない', () => {
+    const existing = [withNumber('100-056-024', '<a/>')]
+    const { accepted, skipped } = excludeDuplicates(existing, [withNumber('100-056-024', '<a/>'), withNumber('100-056-024', '<changed/>'), withNumber('100-060-919', '<b/>')])
+    expect(accepted.map((item) => item.productNumber)).toEqual(['100-060-919'])
+    expect(skipped.map((entry) => [entry.item.productNumber, entry.identical])).toEqual([['100-056-024', true], ['100-056-024', false]])
+  })
+
+  it('同じファイル内で製品品番が重なる場合は先の品目だけを残す', () => {
+    const { accepted, skipped } = excludeDuplicates([], [withNumber('100-056-024', '<a/>'), withNumber('100-056-024', '<a/>')])
+    expect(accepted).toHaveLength(1)
+    expect(skipped).toHaveLength(1)
   })
 })
