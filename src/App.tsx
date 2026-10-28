@@ -17,6 +17,8 @@ interface ViewerState {
   fileName: string
   meta: string
   view?: XmlView
+  /** 分割後の表示で、切り替えて見比べるための分割前のXMLです。 */
+  beforeView?: XmlView
   checks?: CheckResult[]
   loading?: boolean
 }
@@ -93,7 +95,7 @@ export default function App() {
     const base = { stage: '分割後' as const, item, fileName: file.fileName, meta: `格納XML: ${item.xmlFileName}` }
     setViewer({ ...base, loading: true })
     const inspection = await inspectSplitFile(file.blob, item)
-    setViewer((current) => current?.item === item && current.stage === '分割後' ? { ...base, view: inspection.view, checks: inspection.checks } : current)
+    setViewer((current) => current?.item === item && current.stage === '分割後' ? { ...base, view: inspection.view, beforeView: buildXmlView(item.data), checks: inspection.checks } : current)
   }
 
   const allSelected = !!loaded && selected.size === loaded.items.length
@@ -136,8 +138,8 @@ export default function App() {
           <label><input type="checkbox" checked={allSelected} onChange={() => setAll(!allSelected)}/> 全選択</label>
           <button className="link" onClick={() => setAll(false)}>全解除</button><span>{selected.size} / {loaded.items.length} 件を選択中</span>
         </div>
-        <div className="table-wrap"><table><thead><tr><th>No.</th><th>選択</th><th>製品名</th><th>製品品番</th><th>XMLファイル名</th><th>内容</th></tr></thead><tbody>
-          {loaded.items.map((item, index) => <tr key={item.id}><td>{index + 1}</td><td><input aria-label={`${item.productName ?? item.productNumber}を選択`} type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)}/></td><td><b>{item.productName ?? '—'}</b></td><td>{item.productNumber}</td><td className="filename">{item.xmlFileName}</td><td><button className="link" onClick={() => viewBefore(item)}>🔍 表示</button></td></tr>)}
+        <div className="table-wrap"><table><thead><tr><th>No.</th><th>選択</th><th>製品名</th><th>製品品番</th><th>内容</th><th>XMLファイル名</th></tr></thead><tbody>
+          {loaded.items.map((item, index) => <tr key={item.id}><td>{index + 1}</td><td><input aria-label={`${item.productName ?? item.productNumber}を選択`} type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)}/></td><td><b>{item.productName ?? '—'}</b></td><td>{item.productNumber}</td><td><button className="secondary small" onClick={() => viewBefore(item)}>🔍 XMLを表示</button></td><td className="filename">{item.xmlFileName}</td></tr>)}
         </tbody></table></div>
         <div className="action-row"><button className="primary large" onClick={() => void split()} disabled={!!busy || selected.size === 0}>選択した {selected.size} 品目を分割　→</button></div>
       </section>}
@@ -148,7 +150,7 @@ export default function App() {
         <div className="bundle"><div><b>すべてのファイルを一括保存</b><span>分割後のSHAlを1つのZIPにまとめます</span></div><button className="primary" onClick={() => void downloadAll()} disabled={!!busy}>⇩ すべてまとめてダウンロード</button></div>
       </section>}
     </main>
-    {viewer && <XmlViewer title={viewer.item.productName ?? viewer.item.productNumber} stage={viewer.stage} fileName={viewer.fileName} meta={viewer.meta} view={viewer.view} checks={viewer.checks} loading={viewer.loading} onClose={closeViewer} />}
+    {viewer && <XmlViewer title={viewer.item.productName ?? viewer.item.productNumber} stage={viewer.stage} fileName={viewer.fileName} meta={viewer.meta} view={viewer.view} beforeView={viewer.beforeView} beforeFileName={viewer.item.xmlFileName} checks={viewer.checks} loading={viewer.loading} onClose={closeViewer} />}
     <footer>このツールは完全にクライアントサイドで動作します。ファイルがサーバーへ送信されることはありません。</footer>
   </>
 }

@@ -13,6 +13,9 @@ interface Props {
   fileName: string
   meta: string
   view?: XmlView
+  /** 指定すると、分割前のXMLへ切り替えて表示できます。 */
+  beforeView?: XmlView
+  beforeFileName?: string
   checks?: CheckResult[]
   loading?: boolean
   onClose: () => void
@@ -31,9 +34,11 @@ function TreeNode({ node, depth }: { node: XmlNode, depth: number }) {
   </details>
 }
 
-export default function XmlViewer({ title, stage, fileName, meta, view, checks, loading, onClose }: Props) {
+export default function XmlViewer({ title, stage, fileName, meta, view: stageView, beforeView, beforeFileName, checks, loading, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('tree')
   const [query, setQuery] = useState('')
+  const [showBefore, setShowBefore] = useState(false)
+  const view = showBefore && beforeView ? beforeView : stageView
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
@@ -60,6 +65,12 @@ export default function XmlViewer({ title, stage, fileName, meta, view, checks, 
 
       {loading && <div className="notice processing" role="status"><span className="spinner"/>読み込み中…</div>}
       {view?.parseError && <div className="notice error" role="alert">⚠ <span>XMLとして解析できなかったため、ソースのみ表示します。</span></div>}
+
+      {beforeView && stageView && <div className="data-switch" role="group" aria-label="表示するXML">
+        <span>表示するXML</span>
+        <button className={!showBefore ? 'active after' : ''} aria-pressed={!showBefore} onClick={() => setShowBefore(false)}>分割後 <small>{fileName}</small></button>
+        <button className={showBefore ? 'active' : ''} aria-pressed={showBefore} onClick={() => setShowBefore(true)}>分割前 <small>{beforeFileName}</small></button>
+      </div>}
 
       {view && <>
         <div className="viewer-tabs" role="tablist">
