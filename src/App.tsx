@@ -4,13 +4,14 @@ import type { LoadedShai, ShaiItem, SplitFile } from './types'
 import { readShaiFile } from './services/shaiReader'
 import { createBundle, createSplitFiles } from './services/shaiWriter'
 import { inspectSplitFile } from './services/xmlViewer'
+import { createExcel, excelFileNameOf } from './services/excelExport'
 import type { CheckResult, XmlView } from './services/xmlViewer'
 import { downloadBlob } from './utils/download'
 import AppMark from './AppMark'
 import XmlViewer from './XmlViewer'
 import ShaiViewer from './ShaiViewer'
 
-type BusyState = 'reading' | 'splitting' | 'bundling' | null
+type BusyState = 'reading' | 'splitting' | 'bundling' | 'excel' | null
 
 interface ViewerState {
   item: ShaiItem
@@ -85,6 +86,13 @@ export default function App() {
     finally { setBusy(null) }
   }
 
+  async function exportExcel(items: ShaiItem[], sourceName: string) {
+    setBusy('excel'); setError('')
+    try { downloadBlob(await createExcel(items, sourceName), excelFileNameOf(sourceName)) }
+    catch { setError('Excelファイルの作成に失敗しました。') }
+    finally { setBusy(null) }
+  }
+
   async function viewAfter(file: SplitFile) {
     const item = loaded?.items.find((candidate) => candidate.id === file.id)
     if (!item) return
@@ -95,7 +103,7 @@ export default function App() {
   }
 
   const allSelected = !!loaded && selected.size === loaded.items.length
-  const busyLabel = busy === 'reading' ? '読み込み中…' : busy === 'splitting' ? '分割処理中…' : 'まとめファイルを作成中…'
+  const busyLabel = busy === 'reading' ? '読み込み中…' : busy === 'splitting' ? '分割処理中…' : busy === 'excel' ? 'Excelファイルを作成中…' : 'まとめファイルを作成中…'
 
   return <>
     <header><div className="header-inner"><AppMark className="mark" /><div><h1>SHAlファイル分割</h1><p>品目ごとに安全・かんたん分割</p></div><span className="local-badge">● ブラウザ内で処理</span></div></header>
@@ -128,7 +136,7 @@ export default function App() {
 
       {loaded && <section className="card result-card">
         <div className="section-head"><div><span className="step">STEP 2</span><h2>読み込み結果</h2></div><button className="secondary" onClick={() => { if (inputRef.current) inputRef.current.value = ''; inputRef.current?.click() }} disabled={!!busy}>↻ ファイルを選び直す</button></div>
-        <div className="file-summary"><div className="file-symbol">XML</div><div><span>読み込んだファイル</span><b>{loaded.sourceName}</b></div><strong>{loaded.items.length}<small> 品目</small></strong><button className="secondary small" onClick={() => setSourceViewerOpen(true)}>🔍 中身を見る</button></div>
+        <div className="file-summary"><div className="file-symbol">XML</div><div><span>読み込んだファイル</span><b>{loaded.sourceName}</b></div><strong>{loaded.items.length}<small> 品目</small></strong><button className="secondary small" onClick={() => setSourceViewerOpen(true)}>🔍 中身を見る</button><button className="secondary small" onClick={() => void exportExcel(loaded.items, loaded.sourceName)} disabled={!!busy}>📊 Excel出力</button></div>
         {loaded.warnings.map((warning) => <div className="notice warning" key={warning}>⚠ <span>{warning}</span></div>)}
         <div className="selection-bar">
           <label><input type="checkbox" checked={allSelected} onChange={() => setAll(!allSelected)}/> 全選択</label>
@@ -142,7 +150,7 @@ export default function App() {
 
       {results.length > 0 && <section className="card downloads">
         <div className="section-head"><div><span className="step done">✓ COMPLETE</span><h2>分割結果</h2><p className="success">{complete}</p></div></div>
-        <div className="download-list">{results.map((file) => <div key={file.id}><span className="zip-icon">S</span><b>{file.fileName}</b><button className="secondary view-button" onClick={() => void viewAfter(file)}>🔍 内容を確認</button><button className="secondary" onClick={() => downloadBlob(file.blob, file.fileName)}>⇩ ダウンロード</button></div>)}</div>
+        <div className="download-list">{results.map((file) => <div key={file.id}><span className="zip-icon">S</span><b>{file.fileName}</b><button className="secondary view-button" onClick={() => void viewAfter(file)}>🔍 内容を確認</button><button className="secondary" onClick={() => { const item = loaded?.items.find((candidate) => candidate.id === file.id); if (item) void exportExcel([item], file.fileName) }} disabled={!!busy}>📊 Excel</button><button className="secondary" onClick={() => downloadBlob(file.blob, file.fileName)}>⇩ ダウンロード</button></div>)}</div>
         <div className="bundle"><div><b>すべてのファイルを一括保存</b><span>分割後のSHAlを1つのZIPにまとめます</span></div><button className="primary" onClick={() => void downloadAll()} disabled={!!busy}>⇩ すべてまとめてダウンロード</button></div>
       </section>}
     </main>
